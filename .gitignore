@@ -368,7 +368,7 @@ DerivedData/
 *.txt
 
 #models and pickle files
-*.pkl
+#*.pkl
 *.pickle
 
 # User created
