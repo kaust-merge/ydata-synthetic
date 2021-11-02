@@ -364,7 +364,7 @@ DerivedData/
 **/xcshareddata/WorkspaceSettings.xcsettings
 
 #data file
-*.csv
+#*.csv
 *.txt
 
 #models and pickle files
