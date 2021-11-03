@@ -16,9 +16,15 @@ from ydata_synthetic.synthesizers import ModelParameters
 from ydata_synthetic.preprocessing.timeseries import processed_stock
 from ydata_synthetic.synthesizers.timeseries import TimeGAN
 
+from tensorflow.keras import Input, Sequential
+from tensorflow.keras.callbacks import EarlyStopping
+from tensorflow.keras.layers import GRU, Dense
+from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.losses import MeanAbsoluteError
+
 #%%
 
-seq_len = 32        # Timesteps
+seq_len = 30        # Timesteps
 n_seq = 8          # Features
 
 hidden_dim = 24     # Hidden units for generator (GRU & LSTM).
@@ -63,6 +69,7 @@ cols = ['Electricity consumption(MW)',
 'Electricity consumption Residential Zones(MW)',
 'Electricity consumption Office Zones(MW)',
 'Temperature(°C)']
+#%%
 #cols = ['Open','High','Low','Close','Adj Close','Volume']
 #Plotting some generated samples. Both Synthetic and Original data are still standartized with values between [0,1]
 fig, axes = plt.subplots(nrows=4, ncols=2, figsize=(15, 10))
@@ -79,109 +86,97 @@ for j, col in enumerate(cols):
             secondary_y='Synthetic data', style=['-', '--'])
 fig.tight_layout()
 # %%
-from tensorflow.keras import Input, Sequential
-from tensorflow.keras.callbacks import EarlyStopping
-from tensorflow.keras.layers import GRU, Dense
-from tensorflow.keras.optimizers import Adam
-from tensorflow.keras.losses import MeanAbsoluteError
 
-#First implement a simple RNN model for prediction
 def RNN_regression(units):
     opt = Adam(name='AdamOpt')
     loss = MeanAbsoluteError(name='MAE')
     model = Sequential()
     model.add(GRU(units=units,
                   name=f'RNN_1'))
-    model.add(Dense(units=8,
+    model.add(Dense(units=160,
                     activation='sigmoid',
                     name='OUT'))
     model.compile(optimizer=opt, loss=loss)
     return model
 # %%
-#Prepare the dataset for the regression model
+PSIZE = 20
 stock_data=np.asarray(stock_data)
-synth_data = synth_data[:len(stock_data)]
-n_events = len(stock_data)
+n_events = len(stock_data) - PSIZE
 
 #Split data on train and test
 idx = np.arange(n_events)
 n_train = int(.75*n_events)
-train_idx = idx[:n_train]
-test_idx = idx[n_train:]
+train_idx = idx[:n_train-PSIZE]
+test_idx = idx[n_train:-PSIZE]
 
-#Define the X for synthetic and real data
-X_stock_train = stock_data[train_idx, :seq_len-1, :]
-#Define the y for synthetic and real datasets
-y_stock_train = stock_data[train_idx, -1, :]
+#%%
+stock_data.shape
+#%%
+X_stock_train = stock_data[train_idx, :, :]
+y_stock_train = stock_data[train_idx+PSIZE, 0:PSIZE, :]
 
-X_stock_test = stock_data[test_idx, :seq_len-1, :]
-y_stock_test = stock_data[test_idx, -1, :]
-
-
+X_stock_test = stock_data[test_idx, :, :]
+y_stock_test = stock_data[test_idx+PSIZE, 0:PSIZE, :]
 
 print('Real X train: {}'.format(X_stock_train.shape))
 print('Real y train: {}'.format(y_stock_train.shape))
 
 print('Real X test: {}'.format(X_stock_test.shape))
 print('Real y test: {}'.format(y_stock_test.shape))
+#%%
+y_stock_train_flatten = y_stock_train.reshape(y_stock_train.shape[0],y_stock_train.shape[-1]*PSIZE)
+y_stock_test_flatten = y_stock_test.reshape(y_stock_test.shape[0],y_stock_test.shape[-1]*PSIZE)
+
+print('y_stock_train_flatten: {}'.format(y_stock_train_flatten.shape))
+print('y_stock_test_flatten: {}'.format(y_stock_test_flatten.shape))
+
 # %%
-#Training the model with the real train data
 ts_real = RNN_regression(12)
 early_stopping = EarlyStopping(monitor='val_loss')
 
 real_train = ts_real.fit(x=X_stock_train,
-                          y=y_stock_train,
-                          validation_data=(X_stock_test, y_stock_test),
-                          epochs=100,
-                          batch_size=128,
-                          callbacks=[early_stopping])
-# %%
-#Training the model with the synthetic data
-ts_synth = RNN_regression(12)
-synth_train = ts_synth.fit(x=X_synth_train,
-                          y=y_synth_train,
-                          validation_data=(X_stock_test, y_stock_test),
-                          epochs=100,
-                          batch_size=128,
-                          callbacks=[early_stopping])
-# %%
-#Summarize the metrics here as a pandas dataframe
-from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_log_error
-real_predictions = ts_real.predict(X_stock_test)
-synth_predictions = ts_synth.predict(X_stock_test)
+                          y=y_stock_train_flatten,
+                          validation_data=(X_stock_test, y_stock_test_flatten),
+                          epochs=1000,
+                          batch_size=128)
 
-metrics_dict = {'r2': [r2_score(y_stock_test, real_predictions),
-                       r2_score(y_stock_test, synth_predictions)],
-                'MAE': [mean_absolute_error(y_stock_test, real_predictions),
-                        mean_absolute_error(y_stock_test, synth_predictions)],
-                'MRLE': [mean_squared_log_error(y_stock_test, real_predictions),
-                         mean_squared_log_error(y_stock_test, synth_predictions)]}
+# %%
 
-results = pd.DataFrame(metrics_dict, index=['Real', 'Synthetic'])
+# %%
+real_predictions = ts_real.predict(X_stock_test[100:101])
+print(real_predictions.shape)
+#%%
+real_predictions_unflaten = real_predictions.reshape(20,8)
+print(real_predictions_unflaten.shape)
 
-results
-# %%
-real_predictions = ts_real.predict(X_stock_test[0:32])
-real_predictions.shape
-# %%
-(X_stock_test[0:1]).shape
-# %%
-scaler.inverse_transform(X_stock_test[0:1][0])[0]
-# %%
-scaler.inverse_transform(real_predictions)[0]
-# %%
-real_predictions2 = scaler.inverse_transform(real_predictions)
-y_stock_test2 = scaler.inverse_transform(y_stock_test[0:32])
+#%%
+real_predictions2 = scaler.inverse_transform(real_predictions_unflaten)
+tmpPred = np.array(real_predictions2)    
+print(tmpPred.shape)
 
+# %%
+tmpTRUE = y_stock_test[100:101]
+tmpTrue2 = []
+for x in tmpTRUE:
+    real_predictions2 = scaler.inverse_transform(x)
+    tmpTrue2.append(real_predictions2)
+tmpTrue2 = np.array(tmpTrue2)    
+tmpTrue2 = tmpTrue2.reshape(20,8)
+
+print(tmpTrue2.shape)
+
+#%%
+print('tmpTrue2: {}'.format(tmpTrue2.shape))
+print('tmpPred: {}'.format(tmpPred.shape))
+
+
+#%%
 fig, axes = plt.subplots(nrows=4, ncols=2, figsize=(15, 10))
 axes=axes.flatten()
 
-time = list(range(1,32))
-obs = np.random.randint(len(y_stock_test2))
-
 for j, col in enumerate(cols):
-    df = pd.DataFrame({'Real': y_stock_test2[:, j],
-                   'Predicted': real_predictions2[:, j]})
+    df = pd.DataFrame({'Real': tmpTrue2[:, j],
+                   'Predicted': tmpPred[:, j]})
     df.plot(ax=axes[j],
             title = col, 
             secondary_y='Synthetic data', style=['-', '--'])
