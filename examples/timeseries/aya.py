@@ -18,13 +18,15 @@ from ydata_synthetic.synthesizers.timeseries import TimeGAN
 
 from tensorflow.keras import Input, Sequential
 from tensorflow.keras.callbacks import EarlyStopping
-from tensorflow.keras.layers import GRU, Dense
+from tensorflow.keras.layers import GRU, Dense, LSTM, Dropout
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.losses import MeanAbsoluteError
+from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_log_error
+import matplotlib.dates as md
 
 #%%
 
-seq_len = 30        # Timesteps
+seq_len = 100        # Timesteps
 n_seq = 8          # Features
 
 hidden_dim = 24     # Hidden units for generator (GRU & LSTM).
@@ -93,13 +95,13 @@ def RNN_regression(units):
     model = Sequential()
     model.add(GRU(units=units,
                   name=f'RNN_1'))
-    model.add(Dense(units=160,
+    model.add(Dense(units=800,
                     activation='sigmoid',
                     name='OUT'))
     model.compile(optimizer=opt, loss=loss)
     return model
 # %%
-PSIZE = 20
+PSIZE = 100
 stock_data=np.asarray(stock_data)
 n_events = len(stock_data) - PSIZE
 
@@ -137,7 +139,7 @@ early_stopping = EarlyStopping(monitor='val_loss')
 real_train = ts_real.fit(x=X_stock_train,
                           y=y_stock_train_flatten,
                           validation_data=(X_stock_test, y_stock_test_flatten),
-                          epochs=1000,
+                          epochs=500,
                           batch_size=128)
 
 # %%
@@ -146,7 +148,7 @@ real_train = ts_real.fit(x=X_stock_train,
 real_predictions = ts_real.predict(X_stock_test[100:101])
 print(real_predictions.shape)
 #%%
-real_predictions_unflaten = real_predictions.reshape(20,8)
+real_predictions_unflaten = real_predictions.reshape(PSIZE,8)
 print(real_predictions_unflaten.shape)
 
 #%%
@@ -156,12 +158,14 @@ print(tmpPred.shape)
 
 # %%
 tmpTRUE = y_stock_test[100:101]
+tmpTRUE_unfl = tmpTRUE.reshape(PSIZE,8)
+
 tmpTrue2 = []
 for x in tmpTRUE:
     real_predictions2 = scaler.inverse_transform(x)
     tmpTrue2.append(real_predictions2)
 tmpTrue2 = np.array(tmpTrue2)    
-tmpTrue2 = tmpTrue2.reshape(20,8)
+tmpTrue2 = tmpTrue2.reshape(PSIZE,8)
 
 print(tmpTrue2.shape)
 
@@ -181,4 +185,89 @@ for j, col in enumerate(cols):
             title = col, 
             secondary_y='Synthetic data', style=['-', '--'])
 fig.tight_layout()
+# %%
+metrics_dict = {'r2': [r2_score(tmpTRUE_unfl, real_predictions_unflaten)],
+                'MAE': [mean_absolute_error(tmpTRUE_unfl, real_predictions_unflaten)],
+                'MRLE': [mean_squared_log_error(tmpTRUE_unfl, real_predictions_unflaten)]}
+
+results = pd.DataFrame(metrics_dict, index=['Real', 'Synthetic'])
+
+results
+# %%
+
+model = Sequential()
+model.add(LSTM(100, return_sequences=True))
+model.add(Dropout(0.2))
+model.add(LSTM(200, return_sequences=True))
+model.add(Dropout(0.2))
+model.add(LSTM(300, return_sequences=False))
+model.add(Dropout(0.2))
+model.add(Dense(800, activation = "linear"))
+
+model.compile(loss='mse', optimizer='adam')
+# %%
+model_train = model.fit(x=X_stock_train,
+                          y=y_stock_train_flatten,
+                          validation_data=(X_stock_test, y_stock_test_flatten),
+                          epochs=100,
+                          batch_size=128)
+# %%
+indexA = 250
+indexB = indexA+1
+
+real_predictions = model.predict(X_stock_train[indexA:indexB])
+print(real_predictions.shape)
+real_predictions_unflaten = real_predictions.reshape(PSIZE,8)
+print(real_predictions_unflaten.shape)
+
+real_predictions2 = scaler.inverse_transform(real_predictions_unflaten)
+tmpPred = np.array(real_predictions2)    
+print(tmpPred.shape)
+
+tmpTRUE = y_stock_train[indexA:indexB]
+tmpTRUE_unfl = tmpTRUE.reshape(PSIZE,8)
+
+tmpTrue2 = []
+for x in tmpTRUE:
+    real_predictions2 = scaler.inverse_transform(x)
+    tmpTrue2.append(real_predictions2)
+tmpTrue2 = np.array(tmpTrue2)    
+tmpTrue2 = tmpTrue2.reshape(PSIZE,8)
+
+print(tmpTrue2.shape)
+
+print('tmpTrue2: {}'.format(tmpTrue2.shape))
+print('tmpPred: {}'.format(tmpPred.shape))
+
+
+start = pd.Timestamp('2021-10-19T16:59:33')
+end = pd.Timestamp('2021-10-20T16:59:33')
+t = np.linspace(start.value, end.value, 100)
+t = pd.to_datetime(t)
+
+
+fig, axes = plt.subplots(nrows=4, ncols=2, figsize=(15, 10))
+axes=axes.flatten()
+xformatter = md.DateFormatter('%H:%M')
+
+for a in fig.axes:
+    a.xaxis.set_major_formatter(xformatter)
+
+for j, col in enumerate(cols):
+    tmpTrue2[:, j]
+    df = pd.DataFrame(  data = {'Real': tmpTrue2[:, j], 'Predicted': tmpPred[:, j]} ,
+                        index = t)
+    df.plot(ax=axes[j],
+            title = col, 
+            secondary_y='Synthetic data', style=['-', '--'])
+fig.tight_layout()
+# %%
+xx = pd.DataFrame(tmpTrue2[: , 0])
+df = pd.DataFrame(index = t, data =tmpTrue2)
+xx['date'] = t
+xx.reset_index()
+xx
+# %%
+
+
 # %%
