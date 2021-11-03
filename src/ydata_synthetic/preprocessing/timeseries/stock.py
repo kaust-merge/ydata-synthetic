@@ -13,6 +13,6 @@ def transformations(path, seq_len: int):
     except:
         stock_df=stock_df
     #Data transformations to be applied prior to be used with the synthesizer model
-    processed_data = real_data_loading(stock_df.values, seq_len=seq_len)
+    processed_data, scaler = real_data_loading(stock_df.values, seq_len=seq_len)
 
-    return processed_data
+    return processed_data, scaler

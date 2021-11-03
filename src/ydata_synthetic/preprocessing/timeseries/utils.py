@@ -33,4 +33,4 @@ def real_data_loading(data: np.array, seq_len):
     data = []
     for i in range(len(temp_data)):
         data.append(temp_data[idx[i]])
-    return data
+    return data, scaler
